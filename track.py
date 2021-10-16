@@ -19,6 +19,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 
+import requests
 
 def detect(opt):
     out, source, yolo_weights, deep_sort_weights, show_vid, save_vid, save_txt, imgsz, evaluate = \
@@ -82,6 +83,10 @@ def detect(opt):
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
+    oldpersonpresent=False
+    personin=False
+    personenter=0
+
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -98,8 +103,13 @@ def detect(opt):
             pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
         t2 = time_sync()
 
+
         # Process detections
         for i, det in enumerate(pred):  # detections per image
+            personpresent=False
+
+
+
             if webcam:  # batch_size >= 1
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
             else:
@@ -119,6 +129,22 @@ def detect(opt):
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                    
+                    if names[int(c)]=="head":
+                        personpresent=True
+                #print( str("old: ")+str(oldpersonpresent)+ str("new: ")+str(personpresent))
+                if personpresent==True and oldpersonpresent==False:
+                        print("person entered in frame {0}\n".format(frame_idx) )           
+                        personin=False
+                if personpresent==False and oldpersonpresent==True:
+                        print("person left in frame  {0}\n".format(frame_idx))
+                        personenter= frame_idx
+
+                        personin=True
+
+
+                oldpersonpresent=personpresent
+       
 
                 xywhs = xyxy2xywh(det[:, 0:4])
                 confs = det[:, 4]
@@ -139,6 +165,9 @@ def detect(opt):
                         label = f'{id} {names[c]} {conf:.2f}'
                         annotator.box_label(bboxes, label, color=colors(c, True))
 
+
+
+
                         if save_txt:
                             # to MOT format
                             bbox_left = output[0]
@@ -149,13 +178,13 @@ def detect(opt):
                             with open(txt_path, 'a') as f:
                                f.write(('%g ' * 10 + '\n') % (frame_idx, id, bbox_left,
                                                            bbox_top, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
-
+                    
             else:
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
-
+            
             # Stream results
             im0 = annotator.result()
             if show_vid:
@@ -179,6 +208,9 @@ def detect(opt):
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                 vid_writer.write(im0)
+        if frame_idx-personenter>50 and personin:
+                print("Warning: Person entered but has not left after {} frames".format(frame_idx-personenter))
+                r =requests.get('https://xxx.xxx.xxx.xxx/alarm')
 
     if save_txt or save_vid:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
